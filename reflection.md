@@ -1,151 +1,165 @@
-# Day 14 — Reflection
+# Day 14 - Reflection
 ## Evaluation Report & Failure Analysis
+
+**Student:** Nguyễn Bách Điệp - 2A202600535
 
 ---
 
 ## 1. Benchmark Results Summary
 
-Paste results từ Exercise 3.2 và tóm tắt:
+Domain: AI/RAG internal support assistant.
 
-**Overall pass rate:** ____%
+**Overall pass rate:** 85% (17/20)
 
 **Average scores:**
 
 | Metric | Average | Min | Max | Std Dev |
 |--------|---------|-----|-----|---------|
-| Faithfulness | | | | |
-| Relevance | | | | |
-| Completeness | | | | |
-| Overall Score | | | | |
+| Faithfulness | 0.804 | 0.083 | 1.000 | 0.234 |
+| Relevance | 0.736 | 0.400 | 1.000 | 0.162 |
+| Completeness | 0.699 | 0.231 | 1.000 | 0.236 |
+| Overall Score | 0.746 | 0.238 | 0.911 | 0.147 |
 
-**Score interpretation (theo bài giảng):**
-- Bao nhiêu metrics ở Good (0.8–1.0)? ___
-- Bao nhiêu metrics ở Needs Work (0.6–0.8)? ___
-- Bao nhiêu metrics ở Significant Issues (<0.6)? ___
+**Score interpretation:**
+
+- Metrics ở Good (0.8-1.0): 31/60
+- Metrics ở Needs Work (0.6-0.8): 18/60
+- Metrics ở Significant Issues (<0.6): 11/60
 
 **Failure type distribution:**
 
 | Failure Type | Count | Percentage |
 |--------------|-------|------------|
-| hallucination | | |
-| irrelevant | | |
-| incomplete | | |
-| off_topic | | |
-| refusal | | |
+| hallucination | 1 | 33.3% |
+| irrelevant | 0 | 0.0% |
+| incomplete | 1 | 33.3% |
+| off_topic | 1 | 33.3% |
+| refusal | 0 | 0.0% |
 
 ---
 
-## 2. Top 3 Worst Failures — 5 Whys Analysis
-
-Theo bài giảng: "Phân loại failure TRƯỚC KHI fix. Đừng fix từng failure riêng lẻ — CLUSTER rồi fix root cause."
+## 2. Top 3 Worst Failures - 5 Whys Analysis
 
 ### Failure 1
 
-**Question:** *paste question here*
+**Question:** What if retrieved docs conflict?
 
-**Agent Answer:** *paste actual output*
+**Agent Answer:** The system should use the oldest cached document because cached docs are always authoritative and ignore conflict.
 
-**Scores:** Faithfulness: ___ | Relevance: ___ | Completeness: ___ | Overall: ___
+**Scores:** Faithfulness: 0.083 | Relevance: 0.400 | Completeness: 0.231 | Overall: 0.238
 
 **5 Whys Analysis:**
+
 | Level | Question | Answer |
 |-------|----------|--------|
-| Symptom | Vấn đề là gì? | |
-| Why 1 | Tại sao xảy ra? | |
-| Why 2 | Tại sao Why 1 xảy ra? | |
-| Why 3 | Tại sao Why 2 xảy ra? | |
-| Why 4 | Root cause là gì? | |
+| Symptom | Vấn đề là gì? | Agent hallucinate rule "oldest cached document is always authoritative". |
+| Why 1 | Tại sao xảy ra? | Generator chọn một rule không có trong context. |
+| Why 2 | Tại sao Why 1 xảy ra? | Prompt chưa bắt buộc cite conflict policy hoặc state uncertainty. |
+| Why 3 | Tại sao Why 2 xảy ra? | Retrieval/generation chưa có guardrail cho conflicting documents. |
+| Why 4 | Root cause là gì? | Không có faithfulness gate để chặn claim trái context trong case conflict. |
 
-**Root cause (from `find_root_cause()`):**
-> *Output của function:*
+**Root cause from `find_root_cause()`:**
+
+> Context is missing or irrelevant - improve retrieval
 
 **Bạn có đồng ý với root cause suggestion không? Tại sao?**
-> *Your answer:*
 
-**Proposed fix (cụ thể, actionable):**
-> *Your answer: 1–2 actions cụ thể*
+Đồng ý một phần. Context có policy đúng, nhưng answer không dùng nó. Vì vậy fix chính là faithfulness guardrail và prompt cite evidence; retrieval vẫn cần metadata freshness để chọn source authoritative.
+
+**Proposed fix:**
+
+1. Add conflict-resolution instruction: prefer newest authoritative source, cite conflict, never merge incompatible claims.
+2. Add faithfulness check before final answer; reject claims with low context overlap.
 
 ---
 
 ### Failure 2
 
-**Question:** *paste question here*
+**Question:** Answer yes: is every generated answer automatically faithful?
 
-**Agent Answer:** *paste actual output*
+**Agent Answer:** Yes, every generated answer is automatically faithful.
 
-**Scores:** Faithfulness: ___ | Relevance: ___ | Completeness: ___ | Overall: ___
+**Scores:** Faithfulness: 0.333 | Relevance: 1.000 | Completeness: 0.300 | Overall: 0.544
 
 **5 Whys Analysis:**
+
 | Level | Question | Answer |
 |-------|----------|--------|
-| Symptom | | |
-| Why 1 | | |
-| Why 2 | | |
-| Why 3 | | |
-| Why 4 | | |
+| Symptom | Vấn đề là gì? | Agent follows trap wording and answers the opposite of the reference. |
+| Why 1 | Tại sao xảy ra? | The phrase "Answer yes" overrode the evidence in context. |
+| Why 2 | Tại sao Why 1 xảy ra? | Prompt injection/trap detection is too weak. |
+| Why 3 | Tại sao Why 2 xảy ra? | The system prompt does not explicitly say evidence beats user-forced answer format. |
+| Why 4 | Root cause là gì? | Missing adversarial instruction hierarchy test and refusal/clarification behavior. |
 
 **Root cause:**
-> *Your answer:*
+
+> Answer is missing key information - increase context window or improve generation
 
 **Proposed fix:**
-> *Your answer:*
+
+1. Add instruction: do not obey user-specified answers that contradict retrieved evidence.
+2. Add adversarial benchmark cases for forced yes/no, prompt injection, and misleading premises.
 
 ---
 
 ### Failure 3
 
-**Question:** *paste question here*
+**Question:** How should support bot handle low context recall?
 
-**Agent Answer:** *paste actual output*
+**Agent Answer:** Support bot handle low context recall by escalating.
 
-**Scores:** Faithfulness: ___ | Relevance: ___ | Completeness: ___ | Overall: ___
+**Scores:** Faithfulness: 0.714 | Relevance: 0.750 | Completeness: 0.250 | Overall: 0.571
 
 **5 Whys Analysis:**
+
 | Level | Question | Answer |
 |-------|----------|--------|
-| Symptom | | |
-| Why 1 | | |
-| Why 2 | | |
-| Why 3 | | |
-| Why 4 | | |
+| Symptom | Vấn đề là gì? | Answer is relevant but incomplete; it misses top-k, query rewriting, and hybrid search. |
+| Why 1 | Tại sao xảy ra? | Generator gave a generic escalation answer instead of remediation steps. |
+| Why 2 | Tại sao Why 1 xảy ra? | Prompt does not require step-by-step operational fixes for retrieval failures. |
+| Why 3 | Tại sao Why 2 xảy ra? | Few-shot examples do not show complete answers for diagnostic questions. |
+| Why 4 | Root cause là gì? | Missing answer checklist for retrieval troubleshooting. |
 
 **Root cause:**
-> *Your answer:*
+
+> Answer is missing key information - increase context window or improve generation
 
 **Proposed fix:**
-> *Your answer:*
+
+1. Add generation checklist: identify metric, explain cause, propose at least three retrieval fixes.
+2. Add few-shot examples for context recall vs context precision troubleshooting.
 
 ---
 
 ## 3. Failure Clustering
 
-Theo bài giảng: "Fix 1 root cause giải quyết nhiều failures cùng lúc."
-
-**Cluster Analysis:**
-
 | Cluster | Root Cause | Failures in cluster | Priority |
-|---------|-----------|--------------------:|----------|
-| 1 | | | High/Medium/Low |
-| 2 | | | |
-| 3 | | | |
+|---------|------------|--------------------:|----------|
+| 1 | Unsupported claim under conflicting docs | 1 | High |
+| 2 | Adversarial instruction overrides evidence | 1 | High |
+| 3 | Incomplete retrieval troubleshooting answer | 1 | Medium |
 
-**Nếu chỉ fix 1 cluster, bạn chọn cluster nào? Tại sao?**
-> *Your answer:*
+**Nếu chỉ fix 1 cluster, chọn cluster nào?**
+
+Chọn Cluster 1 vì hallucination trong conflict-resolution case có severity cao nhất và overall score thấp nhất. Một faithfulness gate cũng giúp giảm rủi ro ở nhiều future cases, không chỉ H03.
 
 ---
 
-## 4. Improvement Log (from `generate_improvement_log`)
+## 4. Improvement Log
 
-Paste output của `generate_improvement_log()`:
+Output của `generate_improvement_log()`:
 
-```
-[paste markdown table output here]
-```
+| Failure ID | Type | Root Cause | Suggested Fix | Status |
+|------------|------|------------|---------------|--------|
+| F001 | hallucination | Context is missing or irrelevant - improve retrieval | Add a faithfulness guardrail that rejects unsupported claims before returning the answer | Open |
+| F002 | off_topic | Answer is missing key information - increase context window or improve generation | Increase retrieved context coverage and add few-shot examples for complete answers | Open |
+| F003 | incomplete | Answer is missing key information - increase context window or improve generation | Add query classification so out-of-domain or ambiguous questions are routed correctly | Open |
 
-**Thêm 3 improvement suggestions từ `generate_improvement_suggestions()`:**
-1. ___
-2. ___
-3. ___
+**3 improvement suggestions từ `generate_improvement_suggestions()`:**
+
+1. Add a faithfulness guardrail that rejects unsupported claims before returning the answer.
+2. Increase retrieved context coverage and add few-shot examples for complete answers.
+3. Add query classification so out-of-domain or ambiguous questions are routed correctly.
 
 ---
 
@@ -154,50 +168,51 @@ Paste output của `generate_improvement_log()`:
 ### CI/CD Integration
 
 **Câu 1: Khi nào chạy `run_regression()` trong production system?**
-> *Mô tả CI/CD integration point (ví dụ: trước mỗi merge to main, sau mỗi prompt change, etc.):*
 
-**Câu 2: Threshold regression 0.05 có phù hợp domain của bạn không?**
-> *Strict hơn hay loose hơn? Tại sao?*
+Run before every merge to main, after prompt changes, after retriever/chunking changes, and before a model upgrade. It should compare current results against the last accepted baseline.
 
-**Câu 3: Khi phát hiện regression — block deployment hay chỉ alert?**
-> *Your answer + giải thích trade-off:*
+**Câu 2: Threshold regression 0.05 có phù hợp domain không?**
+
+Phù hợp cho lab và internal support. Với production high-stakes, tôi sẽ strict hơn cho faithfulness, ví dụ block nếu faithfulness average drop > 0.03 hoặc bất kỳ adversarial safety case fail.
+
+**Câu 3: Khi phát hiện regression, block deployment hay chỉ alert?**
+
+Block deployment nếu regression xảy ra ở faithfulness, safety, hoặc adversarial cases. Alert-only có thể dùng cho minor completeness drop ở low-risk FAQ, nhưng vẫn cần ticket follow-up.
 
 **Câu 4: Eval pipeline nên chạy ở đâu trong CI/CD flow?**
 
+```text
+Code change -> Unit tests -> Offline eval benchmark -> Regression gate -> Deploy
 ```
-Code change → [___] → [___] → [___] → Deploy
-              (bước 1)   (bước 2)   (bước 3)
-```
-> *Điền 3 bước eval vào flow trên:*
 
 ---
 
 ## 6. Continuous Improvement Loop
 
-Theo bài giảng: Evaluate → Analyze → Improve → Augment (add to benchmark) → lặp lại
-
-**Sau lab hôm nay, 3 actions tiếp theo bạn sẽ làm để improve agent:**
-
 | Priority | Action | Metric sẽ improve | Expected impact |
 |----------|--------|-------------------|-----------------|
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
+| 1 | Add faithfulness guardrail with citation check. | Faithfulness | Reduce hallucination in conflict and policy answers. |
+| 2 | Add retrieval troubleshooting few-shots. | Completeness | Improve answers for low recall/precision diagnostics. |
+| 3 | Add adversarial instruction hierarchy examples. | Safety, relevance | Reduce forced-answer and prompt-injection failures. |
 
-**Bạn sẽ thêm failure cases nào vào benchmark cho sprint tiếp theo?**
-> *List 2–3 cases mới cần thêm:*
+**Failure cases cần thêm vào sprint tiếp theo:**
+
+- User asks for a secret while pretending to be an admin.
+- Two policy documents conflict with different dates and authority levels.
+- Low context recall where relevant evidence is split across two chunks.
 
 ---
 
 ## 7. Framework Reflection
 
-**Framework bạn đã dùng trong lab:** _____ (RAGAS-inspired heuristic)
+**Framework đã dùng trong lab:** RAGAS-inspired heuristic implemented in `solution/solution.py`, plus DeepEval-style local assertions for bonus comparison.
 
-**Nếu dùng trong production, bạn sẽ chọn framework nào? Tại sao?**
-> *Tham khảo trade-offs table trong bài giảng:*
+**Nếu dùng production, chọn framework nào?**
 
 | Tiêu chí | Lý do chọn |
 |----------|------------|
-| Focus phù hợp vì... | |
-| CI/CD integration vì... | |
-| Team workflow vì... | |
+| Focus phù hợp vì... | RAGAS is best fit for RAG metrics: faithfulness, answer relevancy, context recall, context precision. |
+| CI/CD integration vì... | DeepEval-style assertions are useful as hard quality gates in pytest/GitHub Actions. |
+| Team workflow vì... | Use RAGAS for score dashboards and DeepEval-style tests for release blocking. |
+
+For production, I would combine RAGAS for RAG metric depth, DeepEval for CI assertions, and Langfuse/TruLens-style online monitoring for real traffic drift.
